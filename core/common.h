@@ -245,7 +245,7 @@ typedef enum {
     AES_STATE_FINAL
 } aes_state_t;
 
-/* AES-GCM context structure */
+/* AES-GCM context structure (64B aligned for cache efficiency) */
 struct soliton_aesgcm_ctx {
     uint32_t round_keys[60];       /* AES-256 expanded keys (15 rounds * 4 words) */
     uint8_t  h[16];                /* GHASH key H = AES_K(0) */
@@ -261,7 +261,7 @@ struct soliton_aesgcm_ctx {
     int      h_powers_ready;       /* H-powers computed flag (lazy init) */
     const soliton_backend_t* backend; /* Selected backend */
     soliton_plan_t plan;           /* Cached execution plan (v1.8.1) */
-};
+} SOLITON_ALIGN(64);
 
 /* ChaCha20-Poly1305 context state enum */
 typedef enum {
@@ -280,7 +280,7 @@ typedef struct {
     size_t   buffer_len;           /* Bytes in buffer */
 } poly1305_state_t;
 
-/* ChaCha20-Poly1305 context structure */
+/* ChaCha20-Poly1305 context structure (64B aligned for cache efficiency) */
 struct soliton_chacha_ctx {
     uint8_t  key[32];              /* ChaCha20 key */
     uint8_t  nonce[12];            /* Nonce */
@@ -292,7 +292,7 @@ struct soliton_chacha_ctx {
     size_t   buffer_len;           /* Bytes in buffer */
     chacha_state_t state;          /* State machine state */
     const soliton_backend_t* backend; /* Selected backend */
-};
+} SOLITON_ALIGN(64);
 
 /* Batch context structure */
 struct soliton_batch_ctx {

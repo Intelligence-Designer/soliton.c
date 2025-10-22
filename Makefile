@@ -31,15 +31,17 @@ CORE_SCALAR_OBJS = \
 	core/chacha_scalar.o \
 	core/poly1305_scalar.o \
 	core/dispatch.o \
-	core/diagnostics.o
+	core/diagnostics.o \
+	core/plan_stub.o
 
-SCHED_OBJS = \
-	sched/lanes.o \
-	sched/persist.o \
-	sched/superlane.o \
-	sched/autotune.o \
-	sched/plan.o \
-	sched/plan_log.o
+# Scheduler objects (future work - not yet implemented)
+# SCHED_OBJS = \
+# 	sched/lanes.o \
+# 	sched/persist.o \
+# 	sched/superlane.o \
+# 	sched/autotune.o \
+# 	sched/plan.o \
+# 	sched/plan_log.o
 
 # Detect architecture
 ARCH := $(shell uname -m)
@@ -80,7 +82,8 @@ ifeq ($(ARCH),x86_64)
     endif
 endif
 
-ALL_CORE_OBJS = $(CORE_SCALAR_OBJS) $(VECTOR_OBJS) $(SCHED_OBJS)
+ALL_CORE_OBJS = $(CORE_SCALAR_OBJS) $(VECTOR_OBJS)
+# Note: SCHED_OBJS commented out until scheduler implementation (future work)
 
 # Targets
 .PHONY: all clean test bench diag bench-artifacts
@@ -114,6 +117,9 @@ else
 endif
 
 core/diagnostics.o: core/diagnostics.c
+	$(CC) $(CORE_FLAGS) -c -o $@ $<
+
+core/plan_stub.o: core/plan_stub.c
 	$(CC) $(CORE_FLAGS) -c -o $@ $<
 
 # Vector backends - X86-64
