@@ -1,0 +1,29 @@
+# Build artifacts
+*.o
+*.a
+*.so
+*.dylib
+
+# Executables (tests and benchmarks are rebuilt)
+test/test_*
+!test/*.c
+bench/evp_benchmark
+bench/perf_test
+bench/profile_*
+!bench/*.c
+
+# Archives
+archive_*/
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Claude Code (development only)
+.claude/
