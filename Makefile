@@ -347,14 +347,24 @@ install: libsoliton_core.a soliton
 	install -D -m 755 soliton $(PREFIX)/bin/soliton
 	@echo "Installed to $(PREFIX)"
 
+# Performance snapshot with reproducible benchmarking
+.PHONY: perf-snapshot
+perf-snapshot: libsoliton_core.a
+	@echo "=========================================="
+	@echo "Creating Performance Snapshot"
+	@echo "=========================================="
+	@echo ""
+	@./tools/repro.sh 10
+
 .PHONY: help
 help:
 	@echo "soliton.c build targets:"
-	@echo "  all       - Build library, CLI, and provider (if OpenSSL available)"
-	@echo "  clean     - Remove build artifacts"
-	@echo "  test      - Run test suite"
-	@echo "  bench     - Run benchmarks"
-	@echo "  install   - Install library, headers, and tools"
+	@echo "  all            - Build library, CLI, and provider (if OpenSSL available)"
+	@echo "  clean          - Remove build artifacts"
+	@echo "  test           - Run test suite"
+	@echo "  bench          - Run benchmarks"
+	@echo "  perf-snapshot  - Run reproducible benchmark with statistical analysis (v0.4.1a+)"
+	@echo "  install        - Install library, headers, and tools"
 	@echo ""
 	@echo "Compiler: CC=$(CC)"
 	@echo "Architecture: $(ARCH)"
