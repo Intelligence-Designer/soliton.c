@@ -281,45 +281,99 @@ void gcm_fused_encrypt8_vaes_clmul(
     /* XOR state into first ciphertext block (both now in CLMUL domain) */
     C_le[0] = _mm_xor_si128(C_le[0], Xi);
 
-    /* Karatsuba CLMUL with 4 accumulators (hide port 5 latency) */
-    __m128i acc_lo[4], acc_hi[4], acc_mid[4];
-    for (int a = 0; a < 4; a++) {
-        acc_lo[a] = _mm_setzero_si128();
-        acc_hi[a] = _mm_setzero_si128();
-        acc_mid[a] = _mm_setzero_si128();
-    }
+    /* v0.4.2: Fully unrolled Karatsuba with instruction-level parallelism
+     * Goal: Interleave CLMUL instructions to hide 6-cycle latency
+     * Strategy: Issue all low multiplies, then high, then mid to maximize independence
+     *
+     * 4 accumulators: each handles 2 blocks (blocks 0-1 → acc0, 2-3 → acc1, etc.)
+     */
 
-    /* Process 8 blocks across 4 accumulators (2 blocks per accumulator)
-     * All operations in CLMUL domain: C_le[i] * H[i] */
-    for (int i = 0; i < 8; i++) {
-        int acc = i >> 1;  /* accumulator index: 0,0,1,1,2,2,3,3 */
+    /* === PHASE 1: Issue all low multiplies (hide latency by interleaving) === */
+    __m128i lo0 = _mm_clmulepi64_si128(C_le[0], H[0], 0x00);  // Block 0: C*H^8 (low)
+    __m128i lo1 = _mm_clmulepi64_si128(C_le[1], H[1], 0x00);  // Block 1: C*H^7 (low)
+    __m128i lo2 = _mm_clmulepi64_si128(C_le[2], H[2], 0x00);  // Block 2: C*H^6 (low)
+    __m128i lo3 = _mm_clmulepi64_si128(C_le[3], H[3], 0x00);  // Block 3: C*H^5 (low)
+    __m128i lo4 = _mm_clmulepi64_si128(C_le[4], H[4], 0x00);  // Block 4: C*H^4 (low)
+    __m128i lo5 = _mm_clmulepi64_si128(C_le[5], H[5], 0x00);  // Block 5: C*H^3 (low)
+    __m128i lo6 = _mm_clmulepi64_si128(C_le[6], H[6], 0x00);  // Block 6: C*H^2 (low)
+    __m128i lo7 = _mm_clmulepi64_si128(C_le[7], H[7], 0x00);  // Block 7: C*H^1 (low)
 
-        /* Karatsuba: (a_lo, a_hi) * (b_lo, b_hi) */
-        __m128i a_lo_b_lo = _mm_clmulepi64_si128(C_le[i], H[i], 0x00);
-        __m128i a_hi_b_hi = _mm_clmulepi64_si128(C_le[i], H[i], 0x11);
+    /* === PHASE 2: Issue all high multiplies === */
+    __m128i hi0 = _mm_clmulepi64_si128(C_le[0], H[0], 0x11);  // Block 0 (high)
+    __m128i hi1 = _mm_clmulepi64_si128(C_le[1], H[1], 0x11);  // Block 1 (high)
+    __m128i hi2 = _mm_clmulepi64_si128(C_le[2], H[2], 0x11);  // Block 2 (high)
+    __m128i hi3 = _mm_clmulepi64_si128(C_le[3], H[3], 0x11);  // Block 3 (high)
+    __m128i hi4 = _mm_clmulepi64_si128(C_le[4], H[4], 0x11);  // Block 4 (high)
+    __m128i hi5 = _mm_clmulepi64_si128(C_le[5], H[5], 0x11);  // Block 5 (high)
+    __m128i hi6 = _mm_clmulepi64_si128(C_le[6], H[6], 0x11);  // Block 6 (high)
+    __m128i hi7 = _mm_clmulepi64_si128(C_le[7], H[7], 0x11);  // Block 7 (high)
 
-        /* Mid term: (a_lo ⊕ a_hi) * (b_lo ⊕ b_hi) */
-        __m128i a_xor = _mm_xor_si128(_mm_shuffle_epi32(C_le[i], 0x4E), C_le[i]);
-        __m128i b_xor = _mm_xor_si128(_mm_shuffle_epi32(H[i], 0x4E), H[i]);
-        __m128i mid_product = _mm_clmulepi64_si128(a_xor, b_xor, 0x00);
+    /* === PHASE 3: Prepare XOR operands for mid term (cheap ALU ops) === */
+    __m128i c_xor0 = _mm_xor_si128(_mm_shuffle_epi32(C_le[0], 0x4E), C_le[0]);
+    __m128i h_xor0 = _mm_xor_si128(_mm_shuffle_epi32(H[0], 0x4E), H[0]);
+    __m128i c_xor1 = _mm_xor_si128(_mm_shuffle_epi32(C_le[1], 0x4E), C_le[1]);
+    __m128i h_xor1 = _mm_xor_si128(_mm_shuffle_epi32(H[1], 0x4E), H[1]);
+    __m128i c_xor2 = _mm_xor_si128(_mm_shuffle_epi32(C_le[2], 0x4E), C_le[2]);
+    __m128i h_xor2 = _mm_xor_si128(_mm_shuffle_epi32(H[2], 0x4E), H[2]);
+    __m128i c_xor3 = _mm_xor_si128(_mm_shuffle_epi32(C_le[3], 0x4E), C_le[3]);
+    __m128i h_xor3 = _mm_xor_si128(_mm_shuffle_epi32(H[3], 0x4E), H[3]);
+    __m128i c_xor4 = _mm_xor_si128(_mm_shuffle_epi32(C_le[4], 0x4E), C_le[4]);
+    __m128i h_xor4 = _mm_xor_si128(_mm_shuffle_epi32(H[4], 0x4E), H[4]);
+    __m128i c_xor5 = _mm_xor_si128(_mm_shuffle_epi32(C_le[5], 0x4E), C_le[5]);
+    __m128i h_xor5 = _mm_xor_si128(_mm_shuffle_epi32(H[5], 0x4E), H[5]);
+    __m128i c_xor6 = _mm_xor_si128(_mm_shuffle_epi32(C_le[6], 0x4E), C_le[6]);
+    __m128i h_xor6 = _mm_xor_si128(_mm_shuffle_epi32(H[6], 0x4E), H[6]);
+    __m128i c_xor7 = _mm_xor_si128(_mm_shuffle_epi32(C_le[7], 0x4E), C_le[7]);
+    __m128i h_xor7 = _mm_xor_si128(_mm_shuffle_epi32(H[7], 0x4E), H[7]);
 
-        /* mid = mid_product ⊕ lo ⊕ hi */
-        mid_product = _mm_xor_si128(mid_product, a_lo_b_lo);
-        mid_product = _mm_xor_si128(mid_product, a_hi_b_hi);
+    /* === PHASE 4: Issue all mid multiplies === */
+    __m128i mid0 = _mm_clmulepi64_si128(c_xor0, h_xor0, 0x00);
+    __m128i mid1 = _mm_clmulepi64_si128(c_xor1, h_xor1, 0x00);
+    __m128i mid2 = _mm_clmulepi64_si128(c_xor2, h_xor2, 0x00);
+    __m128i mid3 = _mm_clmulepi64_si128(c_xor3, h_xor3, 0x00);
+    __m128i mid4 = _mm_clmulepi64_si128(c_xor4, h_xor4, 0x00);
+    __m128i mid5 = _mm_clmulepi64_si128(c_xor5, h_xor5, 0x00);
+    __m128i mid6 = _mm_clmulepi64_si128(c_xor6, h_xor6, 0x00);
+    __m128i mid7 = _mm_clmulepi64_si128(c_xor7, h_xor7, 0x00);
 
-        /* Accumulate into designated accumulator */
-        acc_lo[acc] = _mm_xor_si128(acc_lo[acc], a_lo_b_lo);
-        acc_hi[acc] = _mm_xor_si128(acc_hi[acc], a_hi_b_hi);
-        acc_mid[acc] = _mm_xor_si128(acc_mid[acc], mid_product);
-    }
+    /* === PHASE 5: Adjust mid terms (mid = mid ⊕ lo ⊕ hi) === */
+    mid0 = _mm_xor_si128(mid0, _mm_xor_si128(lo0, hi0));
+    mid1 = _mm_xor_si128(mid1, _mm_xor_si128(lo1, hi1));
+    mid2 = _mm_xor_si128(mid2, _mm_xor_si128(lo2, hi2));
+    mid3 = _mm_xor_si128(mid3, _mm_xor_si128(lo3, hi3));
+    mid4 = _mm_xor_si128(mid4, _mm_xor_si128(lo4, hi4));
+    mid5 = _mm_xor_si128(mid5, _mm_xor_si128(lo5, hi5));
+    mid6 = _mm_xor_si128(mid6, _mm_xor_si128(lo6, hi6));
+    mid7 = _mm_xor_si128(mid7, _mm_xor_si128(lo7, hi7));
 
-    /* Fold 4 accumulators into 1 using XOR tree */
-    __m128i lo = _mm_xor_si128(_mm_xor_si128(acc_lo[0], acc_lo[1]),
-                                _mm_xor_si128(acc_lo[2], acc_lo[3]));
-    __m128i hi = _mm_xor_si128(_mm_xor_si128(acc_hi[0], acc_hi[1]),
-                                _mm_xor_si128(acc_hi[2], acc_hi[3]));
-    __m128i mid = _mm_xor_si128(_mm_xor_si128(acc_mid[0], acc_mid[1]),
-                                 _mm_xor_si128(acc_mid[2], acc_mid[3]));
+    /* === PHASE 6: Accumulate into 4 accumulators (2 blocks each) === */
+    /* Accumulator 0: blocks 0,1 */
+    __m128i acc_lo0 = _mm_xor_si128(lo0, lo1);
+    __m128i acc_hi0 = _mm_xor_si128(hi0, hi1);
+    __m128i acc_mid0 = _mm_xor_si128(mid0, mid1);
+
+    /* Accumulator 1: blocks 2,3 */
+    __m128i acc_lo1 = _mm_xor_si128(lo2, lo3);
+    __m128i acc_hi1 = _mm_xor_si128(hi2, hi3);
+    __m128i acc_mid1 = _mm_xor_si128(mid2, mid3);
+
+    /* Accumulator 2: blocks 4,5 */
+    __m128i acc_lo2 = _mm_xor_si128(lo4, lo5);
+    __m128i acc_hi2 = _mm_xor_si128(hi4, hi5);
+    __m128i acc_mid2 = _mm_xor_si128(mid4, mid5);
+
+    /* Accumulator 3: blocks 6,7 */
+    __m128i acc_lo3 = _mm_xor_si128(lo6, lo7);
+    __m128i acc_hi3 = _mm_xor_si128(hi6, hi7);
+    __m128i acc_mid3 = _mm_xor_si128(mid6, mid7);
+
+    /* === PHASE 7: Fold 4 accumulators into 1 using XOR tree === */
+    __m128i lo = _mm_xor_si128(_mm_xor_si128(acc_lo0, acc_lo1),
+                                _mm_xor_si128(acc_lo2, acc_lo3));
+    __m128i hi = _mm_xor_si128(_mm_xor_si128(acc_hi0, acc_hi1),
+                                _mm_xor_si128(acc_hi2, acc_hi3));
+    __m128i mid = _mm_xor_si128(_mm_xor_si128(acc_mid0, acc_mid1),
+                                 _mm_xor_si128(acc_mid2, acc_mid3));
 
     /* Combine: result = lo + 2^64*mid + 2^128*hi */
     lo = _mm_xor_si128(lo, _mm_slli_si128(mid, 8));
