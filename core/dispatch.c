@@ -365,6 +365,98 @@ soliton_status soliton_aesgcm_init(
     return SOLITON_OK;
 }
 
+/* Reset AES-GCM context for new message (v0.4.4+)
+ * Reuses key expansion and H-powers, only updates IV and state
+ * This amortizes expensive init cost across multiple messages */
+soliton_status soliton_aesgcm_reset(
+    soliton_aesgcm_ctx* ctx,
+    const uint8_t* iv, size_t iv_len) {
+
+    /* Validate inputs */
+    if (!ctx || !iv || iv_len == 0) {
+        return SOLITON_INVALID_INPUT;
+    }
+
+    /* Verify context was previously initialized (backend must be set) */
+    if (!ctx->backend) {
+        return SOLITON_INVALID_INPUT;
+    }
+
+    /* Clear only message-specific state (NOT keys or H-powers!) */
+    soliton_wipe(ctx->ghash_state, 16);
+    soliton_wipe(ctx->buffer, 16);
+    ctx->aad_len = 0;
+    ctx->ct_len = 0;
+    ctx->buffer_len = 0;
+
+    /* Setup IV (reuse exact logic from init) */
+    if (iv_len == 12) {
+        /* Standard 96-bit IV */
+        for (size_t i = 0; i < 12; i++) {
+            ctx->j0[i] = iv[i];
+        }
+        ctx->j0[12] = 0;
+        ctx->j0[13] = 0;
+        ctx->j0[14] = 0;
+        ctx->j0[15] = 1;
+
+        /* Zero GHASH state for fresh start */
+        soliton_wipe(ctx->ghash_state, 16);
+    } else {
+        /* Non-standard IV length - use GHASH per NIST SP 800-38D Section 7.1 */
+        soliton_wipe(ctx->ghash_state, 16);
+
+        /* Process complete 16-byte blocks from IV */
+        size_t iv_full_blocks = iv_len / 16;
+        if (iv_full_blocks > 0) {
+            ctx->backend->ghash_update(ctx->ghash_state, ctx->h_powers[0], iv, iv_full_blocks * 16);
+        }
+
+        /* Remaining bytes and padding */
+        size_t iv_remainder = iv_len % 16;
+        size_t len_bits = iv_len * 8;
+
+        /* Final block: remainder + padding + length */
+        uint8_t final_block[16] = {0};
+        if (iv_remainder > 0) {
+            for (size_t i = 0; i < iv_remainder; i++) {
+                final_block[i] = iv[iv_full_blocks * 16 + i];
+            }
+        }
+
+        /* Last 8 bytes: big-endian bit length */
+        final_block[8] = (uint8_t)(len_bits >> 56);
+        final_block[9] = (uint8_t)(len_bits >> 48);
+        final_block[10] = (uint8_t)(len_bits >> 40);
+        final_block[11] = (uint8_t)(len_bits >> 32);
+        final_block[12] = (uint8_t)(len_bits >> 24);
+        final_block[13] = (uint8_t)(len_bits >> 16);
+        final_block[14] = (uint8_t)(len_bits >> 8);
+        final_block[15] = (uint8_t)(len_bits);
+
+        /* Process final block */
+        ctx->backend->ghash_update(ctx->ghash_state, ctx->h_powers[0], final_block, 16);
+
+        /* J₀ is the final GHASH output */
+        for (size_t i = 0; i < 16; i++) {
+            ctx->j0[i] = ctx->ghash_state[i];
+        }
+
+        /* Clear GHASH state for actual message processing */
+        soliton_wipe(ctx->ghash_state, 16);
+    }
+
+    /* Initialize counter (counter 1 reserved for tag, start at 2) */
+    ctx->counter = 2;
+
+    /* Reset state machine */
+    ctx->state = AES_STATE_INIT;
+
+    /* Note: Execution plan reused from original init */
+
+    return SOLITON_OK;
+}
+
 soliton_status soliton_aesgcm_aad_update(
     soliton_aesgcm_ctx* ctx, const uint8_t* aad, size_t aad_len) {
 

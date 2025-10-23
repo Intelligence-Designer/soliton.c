@@ -69,6 +69,22 @@ soliton_status soliton_aesgcm_init(
     const uint8_t key[SOLITON_AESGCM_KEY_BYTES],
     const uint8_t* iv, size_t iv_len);
 
+/* Reset AES-GCM context for new message (v0.4.4+)
+ * Reuses key expansion and H-powers, only updates IV/counter
+ * Amortizes expensive init cost across multiple messages
+ * iv: new initialization vector (12 bytes preferred)
+ * iv_len: IV length in bytes
+ *
+ * Usage pattern for multiple messages with same key:
+ *   soliton_aesgcm_init(ctx, key, iv1, 12);      // First message (full init)
+ *   // ... encrypt message 1 ...
+ *   soliton_aesgcm_reset(ctx, iv2, 12);           // Subsequent messages (fast)
+ *   // ... encrypt message 2 ...
+ */
+soliton_status soliton_aesgcm_reset(
+    soliton_aesgcm_ctx* ctx,
+    const uint8_t* iv, size_t iv_len);
+
 /* Process additional authenticated data (AAD)
  * Can be called multiple times before encrypt/decrypt_update */
 soliton_status soliton_aesgcm_aad_update(
