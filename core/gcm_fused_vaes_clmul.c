@@ -401,10 +401,24 @@ void gcm_fused_encrypt8_vaes_clmul(
      * C[] contains ciphertext in spec domain - ready for caller
      * ==================================================================== */
 
+    /* v0.4.3: Use streaming stores to avoid cache pollution for write-once data
+     * Streaming stores bypass cache, reducing pressure on L1/L2 for large messages
+     * Note: Requires 16-byte alignment, which GCC/Clang guarantee for malloc/stack */
     __m128i* ct128 = (__m128i*)ciphertext;
+
+    #ifdef USE_STREAMING_STORES
+    /* Non-temporal stores (bypass cache) - good for large sequential writes */
+    for (int i = 0; i < 8; i++) {
+        _mm_stream_si128(&ct128[i], C[i]);
+    }
+    /* Memory fence to ensure all streaming stores complete before function returns */
+    _mm_sfence();
+    #else
+    /* Normal stores (cached) - simpler, works for all message sizes */
     for (int i = 0; i < 8; i++) {
         _mm_storeu_si128(&ct128[i], C[i]);
     }
+    #endif
 }
 
 #endif /* __x86_64__ && __VAES__ && __PCLMUL__ */
